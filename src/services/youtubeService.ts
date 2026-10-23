@@ -192,6 +192,13 @@ export const YouTubeService = {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
+      if (res.status === 404 || res.status === 405) {
+        const fallback = this.queryDemoDataset(filters);
+        return {
+          ...fallback,
+          error: 'Live YouTube API is not connected on this hosting deployment. Showing benchmark demo data.',
+        };
+      }
       if (res.status === 400 && errorData.error === 'NO_API_KEY') {
         // No key configured on server or client, use demo mode honestly
         return null;

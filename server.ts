@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
 
 app.use(express.json({ limit: '100kb' }));
 
@@ -28,6 +29,25 @@ if (apiKey) {
       },
     },
   });
+}
+
+// Resilient Gemini generator with automatic model fallback
+async function generateGeminiContent(options: { contents: string; config?: any }) {
+  if (!ai) throw new Error('Gemini API is not configured on the server.');
+  const models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-flash-latest'];
+  let lastErr: any = null;
+  for (const model of models) {
+    try {
+      return await ai.models.generateContent({
+        ...options,
+        model,
+      });
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Gemini] Model ${model} generation failed, attempting next model:`, err.message || err);
+    }
+  }
+  throw lastErr;
 }
 
 // -------------------------------------------------------------
@@ -180,32 +200,43 @@ function getTodayString(): string {
 function loadDatabase() {
   try {
     if (fs.existsSync(DB_FILE)) {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      if (Array.isArray(data.users)) {
-        usersDb.clear();
-        for (const u of data.users) {
-          usersDb.set(u.id, u);
+      const raw = fs.readFileSync(DB_FILE, 'utf-8').trim();
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.users)) {
+          usersDb.clear();
+          for (const u of data.users) {
+            usersDb.set(u.id, u);
+          }
         }
-      }
-      if (Array.isArray(data.auditLogs)) {
-        auditLogs = data.auditLogs;
-      }
-      if (data.platformSettings) {
-        platformSettings = { ...platformSettings, ...data.platformSettings };
-      }
-      if (Array.isArray(data.moderationReports)) {
-        moderationReports = data.moderationReports;
+        if (Array.isArray(data.sessions)) {
+          sessionTokens.clear();
+          const now = Date.now();
+          for (const s of data.sessions) {
+            if (s && s.token && s.userId && s.expiresAt > now) {
+              sessionTokens.set(s.token, { userId: s.userId, expiresAt: s.expiresAt });
+            }
+          }
+        }
+        if (Array.isArray(data.auditLogs)) {
+          auditLogs = data.auditLogs;
+        }
+        if (data.platformSettings) {
+          platformSettings = { ...platformSettings, ...data.platformSettings };
+        }
+        if (Array.isArray(data.moderationReports)) {
+          moderationReports = data.moderationReports;
+        }
       }
     }
   } catch (err) {
     console.warn('Failed to load user database from disk, initializing fresh:', err);
   }
 
-  // Admin bootstrap is intentionally disabled unless explicit deployment secrets are provided.
+  // Admin bootstrap with secure server-side env vars
   const adminEmail = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
   const adminPassword = process.env.ADMIN_PASSWORD || '';
-  if (adminEmail && adminPassword.length >= 12) {
+  if (adminEmail && adminPassword.length >= 6) {
     const existingAdmin = Array.from(usersDb.values()).find((u) => u.email.toLowerCase() === adminEmail);
     if (!existingAdmin) {
       const salt = crypto.randomBytes(16).toString('hex');
@@ -216,7 +247,7 @@ function loadDatabase() {
         passwordHash: hashPassword(adminPassword, salt),
         salt,
         role: 'admin',
-        plan: 'pro',
+        plan: 'agency',
         planStatus: 'active',
         status: 'active',
         emailVerified: true,
@@ -235,6 +266,15 @@ function loadDatabase() {
       };
       usersDb.set(adminUser.id, adminUser);
       saveDatabase();
+      console.log(`[ViralReader] Admin account initialized: ${adminEmail}`);
+    } else {
+      // Synchronize role, permissions, and password hash if updated in deployment environment
+      existingAdmin.role = 'admin';
+      existingAdmin.plan = 'agency';
+      existingAdmin.status = 'active';
+      existingAdmin.emailVerified = true;
+      existingAdmin.passwordHash = hashPassword(adminPassword, existingAdmin.salt);
+      saveDatabase();
     }
   }
 }
@@ -243,12 +283,19 @@ function saveDatabase() {
   try {
     const data = {
       users: Array.from(usersDb.values()),
+      sessions: Array.from(sessionTokens.entries()).map(([token, s]) => ({
+        token,
+        userId: s.userId,
+        expiresAt: s.expiresAt,
+      })),
       auditLogs,
       platformSettings,
       moderationReports,
       lastSaved: new Date().toISOString(),
     };
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    const tmpFile = `${DB_FILE}.tmp.${Date.now()}`;
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpFile, DB_FILE);
   } catch (err) {
     console.warn('Failed to write database to disk:', err);
   }
@@ -413,6 +460,7 @@ app.post('/api/auth/signup', (req: Request, res: Response) => {
 
   const token = `tok_${crypto.randomBytes(32).toString('hex')}`;
   sessionTokens.set(token, { userId: newUser.id, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
+  saveDatabase();
 
   return res.json({
     success: true,
@@ -452,6 +500,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 
   const token = `tok_${crypto.randomBytes(32).toString('hex')}`;
   sessionTokens.set(token, { userId: foundUser.id, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
+  saveDatabase();
 
   return res.json({
     success: true,
@@ -475,6 +524,7 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
   if (authHeader) {
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
     sessionTokens.delete(token);
+    saveDatabase();
   }
   return res.json({ success: true, message: 'Signed out successfully.' });
 });
@@ -758,8 +808,7 @@ Return valid JSON matching this schema:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiContent({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -901,8 +950,7 @@ Return valid JSON:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiContent({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -974,8 +1022,7 @@ Provide a detailed scene-by-scene script structured as JSON matching:
   "pinnedComment": "Engaging community-building question for the pinned comment"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiContent({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1043,8 +1090,7 @@ Generate high-contrast, clickable packaging specifications as JSON:
   }
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiContent({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1176,6 +1222,154 @@ app.post('/api/admin/update-user-plan', requireAdmin, (req: Request, res: Respon
 
 app.get('/api/admin/audit-logs', requireAdmin, (req: Request, res: Response) => {
   return res.json({ logs: auditLogs });
+});
+
+app.post('/api/admin/toggle-user-status', requireAdmin, (req: Request, res: Response) => {
+  const admin = getUserFromRequest(req);
+  const { targetUserId, status } = req.body;
+  const target = usersDb.get(targetUserId);
+
+  if (!target) {
+    return res.status(404).json({ error: 'Target user not found.' });
+  }
+
+  if (target.id === admin?.id) {
+    return res.status(400).json({ error: 'Administrators cannot modify or suspend their own account status.' });
+  }
+
+  if (status !== 'active' && status !== 'suspended') {
+    return res.status(400).json({ error: 'Invalid status. Must be "active" or "suspended".' });
+  }
+
+  target.status = status;
+  // If suspended, evict all active sessions immediately
+  if (status === 'suspended') {
+    for (const [token, session] of sessionTokens.entries()) {
+      if (session.userId === target.id) {
+        sessionTokens.delete(token);
+      }
+    }
+  }
+
+  auditLogs.unshift({
+    id: `log-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    adminEmail: admin?.email || 'admin',
+    action: status === 'suspended' ? 'SUSPEND_USER' : 'ACTIVATE_USER',
+    details: `${status === 'suspended' ? 'Suspended' : 'Activated'} user ${target.email}`,
+  });
+  saveDatabase();
+
+  return res.json({ success: true, user: sanitizeUser(target) });
+});
+
+app.post('/api/admin/update-user-credits', requireAdmin, (req: Request, res: Response) => {
+  const admin = getUserFromRequest(req);
+  const { targetUserId, customAiCredits } = req.body;
+  const target = usersDb.get(targetUserId);
+
+  if (!target) {
+    return res.status(404).json({ error: 'Target user not found.' });
+  }
+
+  const credits = parseInt(customAiCredits, 10);
+  if (isNaN(credits) || credits < 0) {
+    return res.status(400).json({ error: 'Valid positive credit number required.' });
+  }
+
+  target.customAiCredits = credits;
+  auditLogs.unshift({
+    id: `log-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    adminEmail: admin?.email || 'admin',
+    action: 'UPDATE_CREDITS',
+    details: `Updated bonus AI credits for ${target.email} to ${credits}`,
+  });
+  saveDatabase();
+
+  return res.json({ success: true, user: sanitizeUser(target) });
+});
+
+app.get('/api/admin/settings', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ settings: platformSettings });
+});
+
+app.post('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
+  const admin = getUserFromRequest(req);
+  const { maintenanceMode, signupOpen, announcementBanner, adPlacements, defaultPlanLimits } = req.body;
+
+  if (typeof maintenanceMode === 'boolean') platformSettings.maintenanceMode = maintenanceMode;
+  if (typeof signupOpen === 'boolean') platformSettings.signupOpen = signupOpen;
+  if (announcementBanner && typeof announcementBanner === 'object') {
+    platformSettings.announcementBanner = {
+      ...platformSettings.announcementBanner,
+      ...announcementBanner,
+    };
+  }
+  if (adPlacements && typeof adPlacements === 'object') {
+    platformSettings.adPlacements = {
+      ...platformSettings.adPlacements,
+      ...adPlacements,
+    };
+  }
+  if (defaultPlanLimits && typeof defaultPlanLimits === 'object') {
+    platformSettings.defaultPlanLimits = {
+      ...platformSettings.defaultPlanLimits,
+      ...defaultPlanLimits,
+    };
+  }
+
+  auditLogs.unshift({
+    id: `log-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    adminEmail: admin?.email || 'admin',
+    action: 'UPDATE_SETTINGS',
+    details: 'Updated global platform configuration and banner',
+  });
+  saveDatabase();
+
+  return res.json({ success: true, settings: platformSettings });
+});
+
+app.get('/api/admin/moderation-reports', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ reports: moderationReports });
+});
+
+app.post('/api/admin/moderation-reports/:id/resolve', requireAdmin, (req: Request, res: Response) => {
+  const admin = getUserFromRequest(req);
+  const { id } = req.params;
+  const { status, notes } = req.body;
+
+  const report = moderationReports.find((r) => r.id === id);
+  if (!report) {
+    return res.status(404).json({ error: 'Moderation report not found.' });
+  }
+
+  if (status !== 'reviewed' && status !== 'dismissed') {
+    return res.status(400).json({ error: 'Status must be "reviewed" or "dismissed".' });
+  }
+
+  report.status = status;
+  if (notes) report.notes = notes;
+
+  auditLogs.unshift({
+    id: `log-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    adminEmail: admin?.email || 'admin',
+    action: 'RESOLVE_REPORT',
+    details: `${status === 'reviewed' ? 'Approved' : 'Dismissed'} moderation report ${id}`,
+  });
+  saveDatabase();
+
+  return res.json({ success: true, report });
+});
+
+app.get('/api/platform/announcement', (_req: Request, res: Response) => {
+  return res.json({
+    announcement: platformSettings.announcementBanner,
+    maintenanceMode: platformSettings.maintenanceMode,
+    adPlacements: platformSettings.adPlacements,
+  });
 });
 
 // -------------------------------------------------------------

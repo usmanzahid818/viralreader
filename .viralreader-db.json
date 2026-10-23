@@ -1,0 +1,212 @@
+{
+  "users": [
+    {
+      "id": "usr-admin-9d9bda719a506486",
+      "email": "uaua8686786@gmai.com",
+      "displayName": "Platform Admin",
+      "passwordHash": "90d8abb439d8d541ad6b61510693c661b459c9d90dc8d816b800ee5823ebc3b31c2b8f19f8a303e263e17d1a71cdb0ec14b464552f2dccce52dcb6060499a317",
+      "salt": "6c9147397c9fcfbfbb53cd000413525d",
+      "role": "admin",
+      "plan": "agency",
+      "planStatus": "active",
+      "status": "active",
+      "emailVerified": true,
+      "createdAt": "2026-10-23T05:08:13.377Z",
+      "preferences": {
+        "defaultMarket": "Global",
+        "primaryNiche": "YouTube General Trends",
+        "language": "English",
+        "enableEmailAlerts": true
+      },
+      "usageToday": {
+        "date": "2026-10-23",
+        "aiGenerations": 0,
+        "trendAnalyses": 0,
+        "thumbnails": 0
+      },
+      "savedVideos": [],
+      "savedTrends": [],
+      "savedIdeas": [],
+      "thumbnailProjects": []
+    },
+    {
+      "id": "usr-1792732107980-2se22",
+      "email": "creator_1792732107977@testviralreader.com",
+      "displayName": "Test Creator",
+      "passwordHash": "d30ba145ca9834a3e18e7e7a5d870e322c495a11ba00275911be57c9afc3033eba4cbd893986a364b974e4743020a1feca16af611e8e5204b0e8d6da193ad78f",
+      "salt": "c17cd60d380aae50e01ac8725817aff7",
+      "role": "user",
+      "plan": "pro",
+      "planStatus": "active",
+      "status": "active",
+      "emailVerified": false,
+      "verificationCode": "803303",
+      "createdAt": "2026-10-23T05:08:28.031Z",
+      "preferences": {
+        "defaultMarket": "Global",
+        "primaryNiche": "YouTube General Trends",
+        "language": "English",
+        "enableEmailAlerts": true
+      },
+      "usageToday": {
+        "date": "2026-10-23",
+        "aiGenerations": 0,
+        "trendAnalyses": 0,
+        "thumbnails": 0
+      },
+      "savedVideos": [
+        {
+          "id": "test-vid-123",
+          "videoId": "test-vid-123",
+          "title": "Testing Viral Metrics",
+          "savedAt": "2026-10-23T05:08:28.283Z"
+        }
+      ],
+      "savedTrends": [],
+      "savedIdeas": [],
+      "thumbnailProjects": []
+    },
+    {
+      "id": "usr-1792732178445-36jnz",
+      "email": "creator_1792732178443@testviralreader.com",
+      "displayName": "Test Creator",
+      "passwordHash": "3c49e329a57297d9b2ccc11d208ec2d2a465030a1813ea87d50775e8b8de47353fe20e29257a677948956f52220f5d0a48a00852f5555bfe25f1dd7674f77581",
+      "salt": "9c1f73ab450ca9d2d5ced67542f31300",
+      "role": "user",
+      "plan": "pro",
+      "planStatus": "active",
+      "status": "active",
+      "emailVerified": false,
+      "verificationCode": "883219",
+      "createdAt": "2026-10-23T05:09:38.508Z",
+      "preferences": {
+        "defaultMarket": "Global",
+        "primaryNiche": "YouTube General Trends",
+        "language": "English",
+        "enableEmailAlerts": true
+      },
+      "usageToday": {
+        "date": "2026-10-23",
+        "aiGenerations": 0,
+        "trendAnalyses": 0,
+        "thumbnails": 0
+      },
+      "savedVideos": [
+        {
+          "id": "test-vid-123",
+          "videoId": "test-vid-123",
+          "title": "Testing Viral Metrics",
+          "savedAt": "2026-10-23T05:09:38.752Z"
+        }
+      ],
+      "savedTrends": [],
+      "savedIdeas": [],
+      "thumbnailProjects": []
+    }
+  ],
+  "sessions": [
+    {
+      "token": "tok_1a7c9099b306bcd92739860fbe724a7726a0d4bc3f057e6e7dc07b47ae7a1572",
+      "userId": "usr-admin-9d9bda719a506486",
+      "expiresAt": 1795324108215
+    },
+    {
+      "token": "tok_8fec015ba874b7de1b2e9b56a8b12c4d29ad5d3c1354564807ab4dae91812153",
+      "userId": "usr-admin-9d9bda719a506486",
+      "expiresAt": 1795324178682
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "log-1792732178695",
+      "timestamp": "2026-10-23T05:09:38.695Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "UPDATE_SETTINGS",
+      "details": "Updated global platform configuration and banner"
+    },
+    {
+      "id": "log-1792732178693",
+      "timestamp": "2026-10-23T05:09:38.693Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "ACTIVATE_USER",
+      "details": "Activated user creator_1792732178443@testviralreader.com"
+    },
+    {
+      "id": "log-1792732178690",
+      "timestamp": "2026-10-23T05:09:38.690Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "SUSPEND_USER",
+      "details": "Suspended user creator_1792732178443@testviralreader.com"
+    },
+    {
+      "id": "log-1792732178687",
+      "timestamp": "2026-10-23T05:09:38.687Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "UPDATE_PLAN",
+      "details": "Updated user creator_1792732178443@testviralreader.com plan to pro"
+    },
+    {
+      "id": "log-1792732108229",
+      "timestamp": "2026-10-23T05:08:28.229Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "UPDATE_SETTINGS",
+      "details": "Updated global platform configuration and banner"
+    },
+    {
+      "id": "log-1792732108227",
+      "timestamp": "2026-10-23T05:08:28.227Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "ACTIVATE_USER",
+      "details": "Activated user creator_1792732107977@testviralreader.com"
+    },
+    {
+      "id": "log-1792732108224",
+      "timestamp": "2026-10-23T05:08:28.224Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "SUSPEND_USER",
+      "details": "Suspended user creator_1792732107977@testviralreader.com"
+    },
+    {
+      "id": "log-1792732108221",
+      "timestamp": "2026-10-23T05:08:28.221Z",
+      "adminEmail": "uaua8686786@gmai.com",
+      "action": "UPDATE_PLAN",
+      "details": "Updated user creator_1792732107977@testviralreader.com plan to pro"
+    }
+  ],
+  "platformSettings": {
+    "maintenanceMode": false,
+    "signupOpen": true,
+    "announcementBanner": {
+      "enabled": true,
+      "text": "Live viral trend telemetry operational.",
+      "level": "info"
+    },
+    "adPlacements": {
+      "bannerEnabled": true,
+      "sponsorCardsEnabled": true,
+      "sponsorTitle": "Level Up Your Packaging with Pro Viral Hooks",
+      "sponsorUrl": "#pricing",
+      "sponsorBadge": "PARTNER"
+    },
+    "defaultPlanLimits": {
+      "free": {
+        "ai": 5,
+        "trend": 15,
+        "thumbnail": 3
+      },
+      "pro": {
+        "ai": 100,
+        "trend": 500,
+        "thumbnail": 50
+      },
+      "agency": {
+        "ai": 500,
+        "trend": 2000,
+        "thumbnail": 200
+      }
+    }
+  },
+  "moderationReports": [],
+  "lastSaved": "2026-10-23T05:09:46.632Z"
+}

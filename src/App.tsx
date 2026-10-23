@@ -161,9 +161,23 @@ export default function App() {
   const [scoreExplainerOpen, setScoreExplainerOpen] = useState<boolean>(false);
   const [pricingModalOpen, setPricingModalOpen] = useState<boolean>(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [legalModalType, setLegalModalType] = useState<LegalModalType>(null);
 
   // Ideas studio selected idea
   const [studioInitialIdea, setStudioInitialIdea] = useState<ContentIdea | null>(null);
+
+  // Restore authenticated session on mount and subscribe to auth changes
+  useEffect(() => {
+    AuthService.getMe().then((user) => {
+      if (user) setCurrentUser(user);
+    });
+    const unsubscribe = AuthService.subscribe((user) => {
+      setCurrentUser(user);
+    });
+    return unsubscribe;
+  }, []);
 
   // Query videos whenever filters change
   useEffect(() => {
@@ -523,6 +537,32 @@ export default function App() {
           />
         );
 
+      case 'admin-panel':
+        return (
+          <AdminPanelView
+            currentUser={currentUser}
+            onOpenScoreExplainer={() => setScoreExplainerOpen(true)}
+          />
+        );
+
+      case 'thumbnail-studio':
+        return (
+          <ThumbnailStudioView
+            videos={videos}
+            onOpenScoreExplainer={() => setScoreExplainerOpen(true)}
+          />
+        );
+
+      case 'landing':
+        return (
+          <LandingPageView
+            onLaunchDashboard={() => setCurrentView('dashboard')}
+            onOpenPricing={() => setCurrentView('pricing')}
+            onOpenAuth={() => setAuthModalOpen(true)}
+            onOpenLegal={(type) => setLegalModalType(type)}
+          />
+        );
+
       case 'settings':
         return (
           <SettingsView
@@ -572,6 +612,8 @@ export default function App() {
           isMobileOpen={mobileSidebarOpen}
           onCloseMobile={() => setMobileSidebarOpen(false)}
           onOpenPricing={() => setCurrentView('pricing')}
+          currentUser={currentUser}
+          onOpenAuth={() => setAuthModalOpen(true)}
         />
 
         {/* Main Content Viewport */}
@@ -589,12 +631,17 @@ export default function App() {
             onOpenPricing={() => setCurrentView('pricing')}
             onNavigate={handleNavigate}
             onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
+            currentUser={currentUser}
+            onOpenAuth={() => setAuthModalOpen(true)}
           />
 
           {/* Body with main canvas & optional right insights panel */}
           <div className="flex-1 flex min-w-0">
             <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl overflow-y-auto">
-              {renderMainContent()}
+              <AdBanner currentUser={currentUser} onOpenPricing={() => setCurrentView('pricing')} placement="dashboard" />
+              <div className="mt-4">
+                {renderMainContent()}
+              </div>
             </main>
 
             {/* Right-hand Insights Panel (Visible on dashboard and large screens) */}
@@ -636,6 +683,29 @@ export default function App() {
       <ScoreExplainerModal
         isOpen={scoreExplainerOpen}
         onClose={() => setScoreExplainerOpen(false)}
+      />
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        currentUser={currentUser}
+        onAuthSuccess={(user) => {
+          setCurrentUser(user);
+          setAuthModalOpen(false);
+        }}
+        onLogout={() => {
+          AuthService.logout();
+          setCurrentUser(null);
+        }}
+        onOpenPricing={() => {
+          setAuthModalOpen(false);
+          setCurrentView('pricing');
+        }}
+      />
+
+      <PublicLegalModal
+        modalType={legalModalType}
+        onClose={() => setLegalModalType(null)}
       />
     </div>
   );
