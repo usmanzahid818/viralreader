@@ -1,0 +1,6 @@
+{
+  "name": "ViralReader",
+  "description": "Discover Trends. Decode Virality. YouTube trend discovery, viral video analysis, and AI content idea generation platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
