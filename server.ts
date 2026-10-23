@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
 // Initialize GoogleGenAI server-side with User-Agent header
 const apiKey = process.env.GEMINI_API_KEY;
@@ -111,7 +111,7 @@ interface ModerationReport {
   notes?: string;
 }
 
-const DB_FILE = path.join(__dirname, '.viralreader-db.json');
+const DB_FILE = path.join(process.env.DATA_DIR || __dirname, '.viralreader-db.json');
 let usersDb: Map<string, StoredUser> = new Map();
 let auditLogs: AuditLog[] = [];
 let moderationReports: ModerationReport[] = [
@@ -150,6 +150,25 @@ let platformSettings: PlatformSettings = {
 
 const sessionTokens = new Map<string, { userId: string; expiresAt: number }>();
 
+async function sendTransactionalEmail(to: string, subject: string, html: string): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) {
+    console.warn('Transactional email not sent: configure RESEND_API_KEY and RESEND_FROM_EMAIL.');
+    return false;
+  }
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, html }),
+  });
+  if (!response.ok) {
+    console.error('Resend email delivery failed:', response.status);
+    return false;
+  }
+  return true;
+}
+
 function hashPassword(password: string, salt: string): string {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
@@ -183,52 +202,40 @@ function loadDatabase() {
     console.warn('Failed to load user database from disk, initializing fresh:', err);
   }
 
-  // Ensure default Admin user exists (uzuz8686786@gmail.com from metadata)
-  const adminEmail = (process.env.ADMIN_EMAIL || 'uzuz8686786@gmail.com').toLowerCase().trim();
-  let adminExists = false;
-  for (const u of usersDb.values()) {
-    if (u.email.toLowerCase() === adminEmail) {
-      adminExists = true;
-      u.role = 'admin';
-      u.plan = 'pro';
-      u.status = 'active';
-      break;
+  // Admin bootstrap is intentionally disabled unless explicit deployment secrets are provided.
+  const adminEmail = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  if (adminEmail && adminPassword.length >= 12) {
+    const existingAdmin = Array.from(usersDb.values()).find((u) => u.email.toLowerCase() === adminEmail);
+    if (!existingAdmin) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const adminUser: StoredUser = {
+        id: `usr-admin-${crypto.randomBytes(8).toString('hex')}`,
+        email: adminEmail,
+        displayName: 'Platform Admin',
+        passwordHash: hashPassword(adminPassword, salt),
+        salt,
+        role: 'admin',
+        plan: 'pro',
+        planStatus: 'active',
+        status: 'active',
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+        preferences: {
+          defaultMarket: 'Global',
+          primaryNiche: 'YouTube General Trends',
+          language: 'English',
+          enableEmailAlerts: true,
+        },
+        usageToday: { date: getTodayString(), aiGenerations: 0, trendAnalyses: 0, thumbnails: 0 },
+        savedVideos: [],
+        savedTrends: [],
+        savedIdeas: [],
+        thumbnailProjects: [],
+      };
+      usersDb.set(adminUser.id, adminUser);
+      saveDatabase();
     }
-  }
-
-  if (!adminExists) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const adminUser: StoredUser = {
-      id: 'usr-admin-1',
-      email: adminEmail,
-      displayName: 'Lead Creator (Admin)',
-      passwordHash: hashPassword('ViralReader2026!', salt),
-      salt,
-      role: 'admin',
-      plan: 'pro',
-      planStatus: 'active',
-      status: 'active',
-      emailVerified: true,
-      createdAt: new Date().toISOString(),
-      preferences: {
-        defaultMarket: 'Global',
-        primaryNiche: 'AI Content & Tech Trends',
-        language: 'English',
-        enableEmailAlerts: true,
-      },
-      usageToday: {
-        date: getTodayString(),
-        aiGenerations: 0,
-        trendAnalyses: 0,
-        thumbnails: 0,
-      },
-      savedVideos: [],
-      savedTrends: [],
-      savedIdeas: [],
-      thumbnailProjects: [],
-    };
-    usersDb.set(adminUser.id, adminUser);
-    saveDatabase();
   }
 }
 
@@ -364,12 +371,11 @@ app.post('/api/auth/signup', (req: Request, res: Response) => {
     }
   }
 
-  // Strict initial admin check: only the exact trusted admin email configured
-  const trustedAdminEmail = (process.env.ADMIN_EMAIL || 'uzuz8686786@gmail.com').toLowerCase().trim();
-  const isInitialAdmin = cleanEmail === trustedAdminEmail;
+  // Public signup can never grant administrator privileges.
+  const isInitialAdmin = false;
 
   const salt = crypto.randomBytes(16).toString('hex');
-  const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+  const verificationCode = crypto.randomInt(100000, 1000000).toString();
 
   const newUser: StoredUser = {
     id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -412,7 +418,7 @@ app.post('/api/auth/signup', (req: Request, res: Response) => {
     success: true,
     token,
     user: sanitizeUser(newUser),
-    verificationCode: isInitialAdmin ? undefined : verificationCode,
+    verificationCode: undefined,
   });
 });
 
@@ -490,21 +496,22 @@ app.post('/api/auth/update-profile', (req: Request, res: Response) => {
   return res.json({ success: true, user: sanitizeUser(user) });
 });
 
-app.post('/api/auth/send-verification', (req: Request, res: Response) => {
+app.post('/api/auth/send-verification', async (req: Request, res: Response) => {
   const user = getUserFromRequest(req);
   if (!user) {
     return res.status(401).json({ error: 'Authentication required to send verification code.' });
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = crypto.randomInt(100000, 1000000).toString();
   user.verificationCode = code;
   saveDatabase();
-
-  return res.json({
-    success: true,
-    message: `Verification code sent to ${user.email}. Enter code to verify.`,
-    verificationCode: code, // returned for verification flow
-  });
+  const sent = await sendTransactionalEmail(
+    user.email,
+    'Verify your ViralReader email',
+    `<p>Your ViralReader verification code is <strong>${code}</strong>.</p><p>This code is for your account only.</p>`
+  );
+  if (!sent) return res.status(503).json({ error: 'Email delivery is not configured. Please try again later.' });
+  return res.json({ success: true, message: 'Verification email sent. Check your inbox.' });
 });
 
 app.post('/api/auth/verify-email', (req: Request, res: Response) => {
@@ -514,7 +521,7 @@ app.post('/api/auth/verify-email', (req: Request, res: Response) => {
   }
 
   const { code } = req.body;
-  if (!code || (code !== user.verificationCode && code !== '123456')) {
+  if (!code || code !== user.verificationCode) {
     return res.status(400).json({ error: 'Invalid verification code. Please check and try again.' });
   }
 
@@ -529,7 +536,7 @@ app.post('/api/auth/verify-email', (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/auth/reset-password', (req: Request, res: Response) => {
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   const { email } = req.body;
   if (!email || typeof email !== 'string') {
     return res.status(400).json({ error: 'Email address is required.' });
@@ -545,21 +552,22 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
   }
 
   if (found) {
-    const token = crypto.randomBytes(16).toString('hex');
-    found.resetToken = token;
-    found.resetTokenExpiry = Date.now() + 3600000; // 1 hour
+    const token = crypto.randomBytes(32).toString('hex');
+    found.resetToken = crypto.createHash('sha256').update(token).digest('hex');
+    found.resetTokenExpiry = Date.now() + 15 * 60 * 1000;
     saveDatabase();
-
-    return res.json({
-      success: true,
-      message: `Password reset instructions and token dispatched to ${cleanEmail}.`,
-      resetToken: token, // included for testing the flow
-    });
+    const baseUrl = (process.env.APP_URL || '').replace(/\/$/, '');
+    const resetUrl = `${baseUrl}/?resetToken=${encodeURIComponent(token)}&email=${encodeURIComponent(cleanEmail)}`;
+    await sendTransactionalEmail(
+      cleanEmail,
+      'Reset your ViralReader password',
+      `<p>We received a request to reset your ViralReader password.</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires in 15 minutes. If you did not request this, ignore this email.</p>`
+    );
   }
 
   return res.json({
     success: true,
-    message: 'If an account exists for this email, password reset instructions have been dispatched.',
+    message: 'If an account exists for this email, password reset instructions will be sent if email delivery is configured.',
   });
 });
 
@@ -582,11 +590,13 @@ app.post('/api/auth/confirm-reset-password', (req: Request, res: Response) => {
     }
   }
 
-  if (!found || found.resetToken !== token || !found.resetTokenExpiry || Date.now() > found.resetTokenExpiry) {
+  if (!found || found.resetToken !== crypto.createHash('sha256').update(String(token)).digest('hex') || !found.resetTokenExpiry || Date.now() > found.resetTokenExpiry) {
     return res.status(400).json({ error: 'Invalid or expired password reset token.' });
   }
 
+  found.salt = crypto.randomBytes(16).toString('hex');
   found.passwordHash = hashPassword(newPassword, found.salt);
+  for (const [sessionToken, session] of sessionTokens.entries()) if (session.userId === found.id) sessionTokens.delete(sessionToken);
   found.resetToken = undefined;
   found.resetTokenExpiry = undefined;
   saveDatabase();
